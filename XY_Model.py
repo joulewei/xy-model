@@ -8,22 +8,26 @@ class XY_Model:
     # Parameter
     L = None
     steps = None
-    spins = None
     mean_magnetisation = None
     vorticity = None
     total_vortices = None
     total_antivortices = None
 
+    @property
+    def spins(self):
+        return self._calc_spins[self.L:2*self.L, self.L:2*self.L]
+
     def __init__(self, L, steps):
         self.L = L
         self.steps = steps
-        self.spins = np.random.uniform(0, 2*np.pi, (L, L))
+        self._calc_spins = np.random.uniform(0, 2*np.pi, (3*L, 3*L))	
         self.mean_magnetisation = {}
         self.current_step = 0
         self.current_energy = self.calculate_energy()
         self.vorticity = self.calculate_vorticity()
         self.total_vortices = 0
         self.total_antivortices = 0
+        self.J = 1
 
     def calculate_correlation_function(self):
         """Berechnet die Korrelationsfunktion C(r) als Funktion des Abstands r."""
@@ -72,26 +76,40 @@ class XY_Model:
         return energy
 
     def calculate_energy_difference(self, theta_new):
-        """Berechnet die Energiedifferenz ΔE für vorgeschlagene neue Winkel."""
-        delta_E = np.zeros((self.L, self.L))
+        delta_E = np.zeros((3*self.L, 3*self.L))
+        L = self.L
+        J = self.J
+        
+        # Shifts for the neighbors (periodic boundary conditions)
         shifts = [(-1,0), (1,0), (0,-1), (0,1)]
+
         for dx, dy in shifts:
-            # Verschieben des Spin-Gitters
-            spins_shifted = np.roll(self.spins, shift=(dx, dy), axis=(0,1))
-            # Berechnung der Energiedifferenz
-            delta_E += -(np.cos(theta_new - spins_shifted) - np.cos(self.spins - spins_shifted))
+            # Shift the spin lattice for the neighbors
+            spins_shifted = np.roll(self._calc_spins, shift=(dx, dy), axis=(0,1))
+            # Calculate the energy difference
+            delta_E += -self.J * (np.cos(theta_new - spins_shifted) - np.cos(self._calc_spins - spins_shifted))
+
         return delta_E
 
     def calculate_vorticity(self):
-        """Berechnet die Vortizität für jedes Plaquette."""
+
+        # Calculates vortex and antivortex positions on the lattice.
+
+        L = self.L
+        _s = self._calc_spins
+
         vorticity = np.zeros((self.L, self.L))
-        for i in range(self.L):
-            for j in range(self.L):
-                # Phasenunterschiede entlang des Plaquettes
-                delta_theta1 = self.spins[i, j] - self.spins[(i + 1) % self.L, j]
-                delta_theta2 = self.spins[(i + 1) % self.L, j] - self.spins[(i + 1) % self.L, (j + 1) % self.L]
-                delta_theta3 = self.spins[(i + 1) % self.L, (j + 1) % self.L] - self.spins[i, (j + 1) % self.L]
-                delta_theta4 = self.spins[i, (j + 1) % self.L] - self.spins[i, j]
+        for i in range(0, L):
+            for j in range(0, L):
+
+                i_shifted = i + L
+                j_shifted = j + L
+                
+                # Phase differences along the plaquette
+                delta_theta1 = _s[i_shifted, j_shifted] - _s[(i_shifted + 1), j_shifted]
+                delta_theta2 = _s[(i_shifted + 1), j_shifted] - _s[(i_shifted + 1), (j_shifted + 1)]
+                delta_theta3 = _s[(i_shifted + 1), (j_shifted + 1) ] - _s[i_shifted, (j_shifted + 1) ]
+                delta_theta4 = _s[i_shifted, (j_shifted + 1)] - _s[i_shifted, j_shifted]
 
                 # Unwrap phase differences to be between -pi and pi
                 delta_theta1 = (delta_theta1 + np.pi) % (2 * np.pi) - np.pi
@@ -109,40 +127,36 @@ class XY_Model:
 
 
     def metropolis_step(self, T):
+        
         beta = 1 / T if T > 0 else np.inf
-        for _ in range(self.L * self.L):
-            # Wähle einen zufälligen Spin aus
-            i = np.random.randint(0, self.L)
-            j = np.random.randint(0, self.L)
+        L = self.L
 
-            # Aktueller Winkel
-            theta_old = self.spins[i, j]
+        # Masks 90% of the spins to not be updated.
+        # MCM usualy updates each spin once per step.
+        # Doing 10% of the spins per step is a good compromise between speed and accuracy.
+        mask = np.random.rand(3*L, 3*L) < 1
 
-            # Vorschlagen eines neuen Winkels (hier ein zufälliger neuer Winkel)
-            theta_new = np.random.uniform(0, 2*np.pi)
+        
+        
+        # New angles for the spins
+        theta_new = np.random.uniform(0, 2*np.pi, (3*L, 3*L))
+        
+        # Energy difference for each spin
+        delta_E = self.calculate_energy_difference(theta_new)
+        
+        # Metropolis acceptance criterion
+        rand_vals = np.random.rand(3*L, 3*L)
+        accept = (delta_E < 0) | (rand_vals < np.exp(-beta * delta_E)) & mask
 
-            # Berechnung der Energiedifferenz ΔE
-            delta_E = 0.0
+        self._calc_spins[accept] = theta_new[accept]
 
-
-            neighbors = [((i + 1) % self.L, j),
-                         ((i - 1) % self.L, j),
-                         (i, (j + 1) % self.L),
-                         (i, (j - 1) % self.L)]
-            for ni, nj in neighbors:
-                delta_E += -np.cos(theta_new - self.spins[ni, nj]) + np.cos(theta_old - self.spins[ni, nj])
-
-            # Metropolis-Kriterium
-            if delta_E < 0 or np.random.rand() < np.exp(-beta * delta_E):
-                self.spins[i, j] = theta_new
-
-        # # Berechne Vortizität nach dem Schritt
+        # Calculates the vorticity
         self.vorticity = self.calculate_vorticity()
-        self.total_vortices = np.sum(self.vorticity > 0.5)
-        self.total_antivortices = np.sum(self.vorticity < -0.5)
+        self.total_vortices = np.sum(self.vorticity > 0.95)
+        self.total_antivortices = np.sum(self.vorticity < -0.95)
 
 
-        # Berechne Magnetisierung
+        # Calculates magnetisation
         M = self.calculate_magnetisation()
         if T not in self.mean_magnetisation:
             self.mean_magnetisation[T] = np.zeros(20)
@@ -150,5 +164,5 @@ class XY_Model:
         self.mean_magnetisation[T][-1] = M
         self.current_energy = self.calculate_energy()
 
-        # Schrittzähler erhöhen
+        # Step counter
         self.current_step += 1
