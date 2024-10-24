@@ -2,12 +2,12 @@ from XY_Model import XY_Model
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib.widgets import Button, Slider, CheckButtons
+from matplotlib.widgets import Button, Slider, CheckButtons, RadioButtons
 
 
-# Initialisierung der Simulation
+# Initialisierung der Simulationconda
 steps = 100_000
-L = 40  # Für eine bessere Visualisierung kleinere Gittergröße
+L = 16  # Für eine bessere Visualisierung kleinere Gittergröße
 sim = XY_Model(L, steps)
 
 # Vorbereitung für die Animation
@@ -15,9 +15,9 @@ fig = plt.figure(figsize=(12,6))
 plt.subplots_adjust(bottom=0.25)  # Platz für Widgets
 
 # Subplots für die Spin-Konfiguration und die Magnetisierung
-ax_spin = plt.axes([0.05, 0.3, 0.4, 0.6])  # [left, bottom, width, height]
-ax_mag = plt.axes([0.55, 0.7, 0.4, 0.2])
-ax_corr = plt.axes([0.55, 0.3, 0.4, 0.2])
+ax_spin = plt.axes([-0.05, 0.3, 0.5, 0.6])  # [left, bottom, width, height]
+ax_mag = plt.axes([0.55, 0.7, 0.3, 0.2])
+ax_corr = plt.axes([0.55, 0.3, 0.3, 0.3])
 
 # Plot für das Spin-Gitter
 X, Y = np.meshgrid(np.arange(L), np.arange(L))
@@ -26,11 +26,11 @@ V = np.sin(sim.spins)
 
 # Matshow für die Energie im Hintergrund
 
-E = ax_spin.matshow(sim.vorticity, cmap='viridis', origin='lower', alpha=0.6)
-cbar = plt.colorbar(E, ax=ax_spin, fraction=0.046, pad=0.04, label='Vorticity')
+E_V = ax_spin.matshow(np.zeros_like(sim.spins), cmap='bwr', origin='lower', alpha=0.6)
+cbar = plt.colorbar(E_V, ax=ax_spin, fraction=0.046, pad=0.04, label='Energy / Vorticity')
 
 # Quiver für die Spins
-Q = ax_spin.quiver(X, Y, U, V, pivot='middle', color='white')
+Q = ax_spin.quiver(X, Y, U, V, pivot='middle', color='k')
 ax_spin.set_title("Spin configuration with vortices")
 ax_spin.set_xlim(-0.5, L-0.5)
 ax_spin.set_ylim(-0.5, L-0.5)
@@ -50,18 +50,30 @@ ax_mag.legend()
 ax_corr.set_title("Correlation function")
 ax_corr.set_xlabel(rf"$r$")
 ax_corr.set_ylabel(rf"$C(r)$")
-ax_corr.set_xlim(0, L//2)
-ax_corr.set_ylim(-1, 1)
-line_corr, = ax_corr.plot([], [], 'o', label=rf'$C(r)$')
+ax_corr.set_xlim(0.8, L//2)
+ax_corr.set_ylim(1e-3, 2)
+line_corr, = ax_corr.semilogy([1], [1], 'o', label=rf'$C(r)$')
 ax_corr.legend()
 
 # Start/Stop Button
 ax_button = plt.axes([0.8, 0.05, 0.1, 0.075])
 button = Button(ax_button, 'Start', color='lightgoldenrodyellow', hovercolor='0.975')
 
-# Start/Stop Button
+# Set min-energy state Button
+ax_set_min_energy = plt.axes([0.7, 0.05, 0.1, 0.075])
+button_set_min_energy = Button(ax_set_min_energy, 'Set min-energy', color='lightgoldenrodyellow', hovercolor='0.975')
+
+# Set single vortex Button
+ax_set_vortex = plt.axes([0.7, 0.15, 0.1, 0.075])
+button_set_vortex = Button(ax_set_vortex, 'Set vortex', color='lightgoldenrodyellow', hovercolor='0.975')
+
+# Set vortex pair Button
+ax_set_vortex_pair = plt.axes([0.8, 0.15, 0.1, 0.075])
+button_set_vortex_pair = Button(ax_set_vortex_pair, 'Set vortex pair', color='lightgoldenrodyellow', hovercolor='0.975')
+
+# Checkbox for Correlation and Magnetisation calculation
 ax_corr_checkbox = plt.axes([0.6, 0.05, 0.1, 0.075])
-corr_checkbox = CheckButtons(ax_corr_checkbox, ('Calc <M>', 'Calc. C(r)',), (False, False))
+corr_checkbox = CheckButtons(ax_corr_checkbox, ('Calc <M>', 'Calc. C(r)',), (True, True))
 
 # Temperatur Slider
 ax_slider = plt.axes([0.2, 0.1, 0.3, 0.03], facecolor='lightgoldenrodyellow')
@@ -74,6 +86,9 @@ slider_T = Slider(
     valstep=0.1
 )
 
+# Energy Vorticity Radio Button
+ax_radio = plt.axes([0.6, 0.15, 0.1, 0.1])
+radio_E_V = RadioButtons(ax_radio, ('None', 'Energy', 'Vorticity'), active=0)
 
 # Variablen zur Steuerung der Animation
 running = False
@@ -87,7 +102,28 @@ def start_stop(event):
     else:
         button.label.set_text('Start')
 
+def set_min_energy(event):
+    sim.set_min_energy()
+    Q.set_UVC(np.cos(sim.spins), np.sin(sim.spins))
+    E_V.set_data(sim.calculate_energy())
+    cbar.set_label('Energy')
+
+def set_vortex(event):
+    sim.set_single_vortex()
+    Q.set_UVC(np.cos(sim.spins), np.sin(sim.spins))
+    E_V.set_data(sim.calculate_energy())
+    cbar.set_label('Vorticity')
+
+def set_vortex_pair(event):
+    sim.set_vortex_pair()
+    Q.set_UVC(np.cos(sim.spins), np.sin(sim.spins))
+    E_V.set_data(sim.calculate_energy())
+
+
 button.on_clicked(start_stop)
+button_set_min_energy.on_clicked(set_min_energy)
+button_set_vortex.on_clicked(set_vortex)
+button_set_vortex_pair.on_clicked(set_vortex_pair)
 
 def update(frame):
     global T_current
@@ -96,20 +132,22 @@ def update(frame):
 
         # Aktualisiere Quiver
         Q.set_UVC(np.cos(sim.spins), np.sin(sim.spins))
-        V_text.set_text(rf'$C_+$: {sim.total_vortices:.0f}, $C_-$: {sim.total_antivortices:.0f}')
+        V_text.set_text(rf'$C_+$: {sim.total_vortices:.0f}, $C_-$: {sim.total_antivortices:.0f}, $\epsilon$: { np.mean(sim.calculate_energy() - 4):.2f}')
 
         # Aktualisiere Energie-Matshow
-        E.set_data(sim.vorticity)
-
-        # Optional: Dynamische Anpassung der Farbskala
-        # E.set_clim(vmin=np.min(sim.vorticity), vmax=np.max(sim.vorticity))
-        # E.set_clim(vmin=-1, vmax=1)
-        cbar.update_normal(E)
+        if radio_E_V.value_selected == 'Energy':
+            E_V.set_data(sim.calculate_energy())
+            E_V.set_clim(vmin=-4, vmax=4)
+        elif radio_E_V.value_selected == 'Vorticity':
+            E_V.set_data(sim.vorticity)
+            E_V.set_clim(vmin=-1, vmax=1)
+        else:
+            E_V.set_data(np.zeros_like(sim.vorticity))
 
         # Aktualisiere Korrelationsfunktion
         if corr_checkbox.get_status()[1]:
             distances, correlations = sim.calculate_correlation_function()
-            line_corr.set_data(distances, correlations)
+            line_corr.set_data(distances, np.abs(correlations))
 
 
         # Aktualisiere Magnetisierung
@@ -122,7 +160,7 @@ def update(frame):
             line_mag.set_data(T_values, M_values)
 
 
-    return Q, E, line_mag
+    return Q, E_V, line_mag
 
 # Aktualisiere den Temperaturwert, wenn der Slider bewegt wird
 def update_temperature(val):

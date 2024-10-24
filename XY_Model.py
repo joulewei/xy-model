@@ -36,22 +36,25 @@ class XY_Model:
         correlations = np.zeros(len(distances))
         counts = np.zeros(len(distances))
 
-        for idx, r in enumerate(distances):
-            for i in range(self.L):
-                for j in range(self.L):
-                    # Zielpunkt mit Abstand r in x-Richtung (periodische Randbedingungen)
-                    x2 = (i + r) % self.L
-                    y2 = j
-                    delta_theta = self.spins[i, j] - self.spins[x2, y2]
-                    correlations[idx] += np.cos(delta_theta)
-                    counts[idx] += 1
+        for r in distances:
+            # Hauptachsen
+            s_shifted_x = np.roll(self.spins, shift=(r, 0), axis=(0,1))
+            s_shifted_y = np.roll(self.spins, shift=(0, r), axis=(0,1))
 
-                    # Zielpunkt mit Abstand r in y-Richtung
-                    x2 = i
-                    y2 = (j + r) % self.L
-                    delta_theta = self.spins[i, j] - self.spins[x2, y2]
-                    correlations[idx] += np.cos(delta_theta)
-                    counts[idx] += 1
+            # Diagonalen
+            s_shifted_diag1 = np.roll(self.spins, shift=(r, r), axis=(0,1))
+            s_shifted_diag2 = np.roll(self.spins, shift=(r, -r), axis=(0,1))
+
+            # Berechnung der Kosinuswinkel-Differenzen
+            correlations[r - 1] = (
+                    np.sum(np.cos(self.spins - s_shifted_x)) +
+                    np.sum(np.cos(self.spins - s_shifted_y)) +
+                    np.sum(np.cos(self.spins - s_shifted_diag1)) +
+                    np.sum(np.cos(self.spins - s_shifted_diag2))
+            )
+
+            # Zählung der Paare
+            counts[r - 1] = 4 * self.L * self.L  # x, y, diag1, diag2
 
         # Normiere die Korrelationen
         correlations = correlations / counts
@@ -63,6 +66,13 @@ class XY_Model:
         M = np.sqrt(X**2 + Y**2)
         return M / (self.L * self.L)
 
+    def set_min_energy(self):
+        self._calc_spins = np.zeros((3*self.L, 3*self.L))
+        self.vorticity = np.zeros((self.L, self.L))
+        self.total_vortices = 0
+        self.total_antivortices = 0
+        self.current_energy = np.zeros((self.L, self.L))
+
     def calculate_energy(self):
         """Berechnet die lokale Energie jedes Spins."""
         energy = np.zeros((self.L, self.L))
@@ -72,7 +82,7 @@ class XY_Model:
             spins_shifted = np.roll(self.spins, shift=(dx, dy), axis=(0,1))
             energy += -np.cos(self.spins - spins_shifted)
         # Da jede Wechselwirkung doppelt gezählt wird, teilen wir durch 2
-        energy = energy / 2
+        energy = energy
         return energy
 
     def calculate_energy_difference(self, theta_new):
@@ -124,6 +134,87 @@ class XY_Model:
                 vorticity[i, j] = winding / (2 * np.pi)
 
         return vorticity
+        
+    def set_single_vortex(self):
+        """
+        Sets a single vortex at the center of the lattice, replacing the entire _calc_spins lattice.
+        """
+        L = self.L
+        total_size = 3 * L
+
+        # Create grid of coordinates for the entire _calc_spins lattice
+        x = np.arange(total_size)
+        y = np.arange(total_size)
+        xv, yv = np.meshgrid(x, y)
+
+        # Shift coordinates so that the center of the central L x L region is at (0,0)
+        x_center = total_size // 2
+        y_center = total_size // 2
+        xv_shifted = xv - x_center
+        yv_shifted = yv - y_center
+
+        # Calculate the angle at each point
+        theta = np.arctan2(yv_shifted, xv_shifted)
+
+        # Adjust theta to be in [0, 2*pi)
+        theta = (theta + 2 * np.pi) % (2 * np.pi)
+
+        # Replace the entire _calc_spins lattice
+        self._calc_spins = theta
+
+        # Update vorticity and energy
+        self.vorticity = self.calculate_vorticity()
+        self.current_energy = self.calculate_energy()
+        self.current_step = 0
+
+    def set_vortex_pair(self):
+        """
+        Sets a vortex-antivortex pair in the lattice, replacing the entire _calc_spins lattice.
+        """
+        L = self.L
+        total_size = 3 * L
+
+        # Create grid of coordinates for the entire _calc_spins lattice
+        x = np.arange(total_size)
+        y = np.arange(total_size)
+        xv, yv = np.meshgrid(x, y)
+
+        # Shift coordinates so that the center of the central L x L region is at (0,0)
+        x_center = total_size // 2
+        y_center = total_size // 2
+        xv_shifted = xv - x_center
+        yv_shifted = yv - y_center
+
+        # Coordinates of the vortex centers relative to the center
+        separation = L // 4  # Adjust separation as needed
+        x0 = -separation
+        y0 = 0
+        x1 = separation
+        y1 = 0
+
+        # Calculate the angle for the first vortex
+        xv_shifted_0 = xv_shifted - x0
+        yv_shifted_0 = yv_shifted - y0
+        theta0 = np.arctan2(yv_shifted_0, xv_shifted_0)
+
+        # Calculate the angle for the second (anti)vortex
+        xv_shifted_1 = xv_shifted - x1
+        yv_shifted_1 = yv_shifted - y1
+        theta1 = np.arctan2(yv_shifted_1, xv_shifted_1)
+
+        # Total angle is the difference between the two contributions
+        theta = theta0 - theta1
+
+        # Adjust theta to be in [0, 2*pi)
+        theta = (theta + 2 * np.pi) % (2 * np.pi)
+
+        # Replace the entire _calc_spins lattice
+        self._calc_spins = theta
+
+        # Update vorticity and energy
+        self.vorticity = self.calculate_vorticity()
+        self.current_energy = self.calculate_energy()
+        self.current_step = 0
 
 
     def metropolis_step(self, T):
