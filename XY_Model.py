@@ -5,21 +5,46 @@ from matplotlib.widgets import Button, Slider
 
 
 class XY_Model:
-    # Parameter
+    """
+    Class for the 2D XY model.
+
+    Attributes:
+    L (int): Linear size of the lattice.
+    mean_magnetisation (dict): Dictionary containing the mean magnetisation for each temperature.
+    vorticity (np.ndarray): Vorticity of the lattice.
+    total_vortices (int): Number of vortices in the lattice.
+    total_antivortices (int): Number of antivortices in the
+    spins (np.ndarray): Spin configuration of the lattice.
+    current_energy (np.ndarray): Current energy of the lattice.
+    J (float): Coupling constant of the model.
+
+    Methods:
+    calculate_correlation_function: Calculate the correlation function of the lattice.
+    calculate_magnetisation: Calculate the magnetisation of the lattice.
+    set_min_energy: Set the lattice to the minimum energy configuration.
+    calculate_energy: Calculate the energy of the lattice.
+    calculate_energy_difference: Calculate the energy difference of a new configuration.
+    calculate_vorticity: Calculate the vorticity of the lattice.
+    set_single_vortex: Set a single vortex in the lattice.
+    set_vortex_pair: Set a vortex-antivortex pair in the lattice.
+    metropolis_step: Perform a single Metropolis step in the
+    """
+
     L = None
-    steps = None
-    mean_magnetisation = None
+    _calc_spins = None
+    mean_magnetisation = {}
+    current_energy = None
     vorticity = None
-    total_vortices = None
-    total_antivortices = None
+    total_vortices = 0
+    total_antivortices = 0
+    J = 1
 
     @property
     def spins(self):
         return self._calc_spins[self.L:2*self.L, self.L:2*self.L]
 
-    def __init__(self, L, steps):
+    def __init__(self, L):
         self.L = L
-        self.steps = steps
         self._calc_spins = np.random.uniform(0, 2*np.pi, (3*L, 3*L))	
         self.mean_magnetisation = {}
         self.current_step = 0
@@ -30,7 +55,14 @@ class XY_Model:
         self.J = 1
 
     def calculate_correlation_function(self):
-        """Berechnet die Korrelationsfunktion C(r) als Funktion des Abstands r."""
+        """
+        Calculate the correlation function of the lattice.
+
+        Returns:
+        distances (np.ndarray): Array of distances between spins.
+        correlations (np.ndarray): Array of correlations between spins.
+
+        """
         max_distance = self.L // 2
         distances = np.arange(1, max_distance)
         correlations = np.zeros(len(distances))
@@ -62,33 +94,37 @@ class XY_Model:
         return distances, correlations
 
     def calculate_magnetisation(self):
+        """
+        Calculate the magnetisation of the lattice by adding up all x and y components of the spins.
+        The magnetisation is the normalized length of the resulting vector.
+
+        Returns:
+        M (float): Magnetization of the lattice.
+        """
         X, Y = np.sum(np.cos(self.spins)), np.sum(np.sin(self.spins))
         M = np.sqrt(X**2 + Y**2)
         return M / (self.L * self.L)
 
     def set_min_energy(self):
+        """
+        Set the lattice to a minimum energy configuration (all spins aligned).
+        """
         self._calc_spins = np.zeros((3*self.L, 3*self.L))
         self.vorticity = np.zeros((self.L, self.L))
         self.total_vortices = 0
         self.total_antivortices = 0
         self.current_energy = np.zeros((self.L, self.L))
 
-    def calculate_energy(self):
-        """Berechnet die lokale Energie jedes Spins."""
-        energy = np.zeros((self.L, self.L))
-        shifts = [(-1,0), (1,0), (0,-1), (0,1)]
-        for dx, dy in shifts:
-            # Verschieben des Spin-Gitters für Nachbarn
-            spins_shifted = np.roll(self.spins, shift=(dx, dy), axis=(0,1))
-            energy += -np.cos(self.spins - spins_shifted)
-        # Da jede Wechselwirkung doppelt gezählt wird, teilen wir durch 2
-        energy = energy
-        return energy
+    def calculate_energy(self, theta_new=None, full_grid=False):
+        """
+        Calculate the energy at each point of the grid.
+        If theta_new is given, the energy difference of the current vs. the new configuration is calculated.
 
-    def calculate_energy_difference(self, theta_new):
-        delta_E = np.zeros((3*self.L, 3*self.L))
-        L = self.L
-        J = self.J
+        Args:
+        theta_new (np.ndarray): New spin configuration.
+        full_grid (bool): If True, the energy is returned for the entire 3L x 3L grid. The center L x L otherwise.
+        """
+        delta_E = np.zeros_like(self._calc_spins)
         
         # Shifts for the neighbors (periodic boundary conditions)
         shifts = [(-1,0), (1,0), (0,-1), (0,1)]
@@ -97,9 +133,13 @@ class XY_Model:
             # Shift the spin lattice for the neighbors
             spins_shifted = np.roll(self._calc_spins, shift=(dx, dy), axis=(0,1))
             # Calculate the energy difference
-            delta_E += -self.J * (np.cos(theta_new - spins_shifted) - np.cos(self._calc_spins - spins_shifted))
+            if theta_new is None:
+                delta_E += -self.J * np.cos(self._calc_spins - spins_shifted)
+            else:
+                delta_E += -self.J * (np.cos(theta_new - spins_shifted) - np.cos(self._calc_spins - spins_shifted))
 
-        return delta_E
+
+        return delta_E if full_grid else delta_E[self.L:2*self.L, self.L:2*self.L]
 
     def calculate_vorticity(self):
 
@@ -218,26 +258,30 @@ class XY_Model:
 
 
     def metropolis_step(self, T):
+        """
+        Perform a single Metropolis step in the simulation. 
+
+        Args:
+        T (float): Temperature
+        """
         
         beta = 1 / T if T > 0 else np.inf
         L = self.L
 
         # Masks 90% of the spins to not be updated.
-        # MCM usualy updates each spin once per step.
+        # Metropolis usually updates one spin at the time.
         # Doing 10% of the spins per step is a good compromise between speed and accuracy.
-        mask = np.random.rand(3*L, 3*L) < 1
-
-        
+        mask = np.random.rand(3*L, 3*L) < .1
         
         # New angles for the spins
         theta_new = np.random.uniform(0, 2*np.pi, (3*L, 3*L))
         
         # Energy difference for each spin
-        delta_E = self.calculate_energy_difference(theta_new)
+        delta_E = self.calculate_energy(theta_new, full_grid=True)
         
         # Metropolis acceptance criterion
         rand_vals = np.random.rand(3*L, 3*L)
-        accept = (delta_E < 0) | (rand_vals < np.exp(-beta * delta_E)) & mask
+        accept = ((delta_E < 0) | (rand_vals < np.exp(-beta * delta_E))) & mask
 
         self._calc_spins[accept] = theta_new[accept]
 
