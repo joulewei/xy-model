@@ -1,7 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.widgets import Button, Slider
 
 
 class XY_Model:
@@ -45,7 +42,7 @@ class XY_Model:
 
     def __init__(self, L):
         self.L = L
-        self._calc_spins = np.random.uniform(0, 2*np.pi, (3*L, 3*L))	
+        self._calc_spins = np.random.uniform(0, 2*np.pi, (3*L, 3*L))
         self.mean_magnetisation = {}
         self.current_step = 0
         self.current_energy = self.calculate_energy()
@@ -69,26 +66,29 @@ class XY_Model:
         counts = np.zeros(len(distances))
 
         for r in distances:
-            # Hauptachsen
-            s_shifted_x = np.roll(self.spins, shift=(r, 0), axis=(0,1))
-            s_shifted_y = np.roll(self.spins, shift=(0, r), axis=(0,1))
+            # Principal components
+            s_shifted_x = np.roll(self.spins, shift=(r, 0), axis=(0, 1))
+            s_shifted_y = np.roll(self.spins, shift=(0, r), axis=(0, 1))
 
-            # Diagonalen
-            s_shifted_diag1 = np.roll(self.spins, shift=(r, r), axis=(0,1))
-            s_shifted_diag2 = np.roll(self.spins, shift=(r, -r), axis=(0,1))
+            # Diagonal components
+            s_shifted_diag1 = np.roll(self.spins, shift=(r, r), axis=(0, 1))
+            s_shifted_diag2 = np.roll(self.spins, shift=(r, -r), axis=(0, 1))
 
-            # Berechnung der Kosinuswinkel-Differenzen
+            # Calculate cosine of the differences
             correlations[r - 1] = (
-                    np.sum(np.cos(self.spins - s_shifted_x)) +
-                    np.sum(np.cos(self.spins - s_shifted_y)) +
-                    np.sum(np.cos(self.spins - s_shifted_diag1)) +
-                    np.sum(np.cos(self.spins - s_shifted_diag2))
+                np.sum(np.cos(self.spins - s_shifted_x)) +
+                np.sum(np.cos(self.spins - s_shifted_y)) +
+                np.sum(np.cos(self.spins - s_shifted_diag1)) +
+                np.sum(np.cos(self.spins - s_shifted_diag2))
             )
 
-            # Zählung der Paare
+            # Number of spin pairs for each distance
+            # This implementation is a relict from playing around with
+            # different boundary conditions. Since the current boundary conditions are periodic,
+            # the number of pairs is constant.
             counts[r - 1] = 4 * self.L * self.L  # x, y, diag1, diag2
 
-        # Normiere die Korrelationen
+        # Normalizing
         correlations = correlations / counts
 
         return distances, correlations
@@ -125,19 +125,21 @@ class XY_Model:
         full_grid (bool): If True, the energy is returned for the entire 3L x 3L grid. The center L x L otherwise.
         """
         delta_E = np.zeros_like(self._calc_spins)
-        
+
         # Shifts for the neighbors (periodic boundary conditions)
-        shifts = [(-1,0), (1,0), (0,-1), (0,1)]
+        shifts = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
         for dx, dy in shifts:
             # Shift the spin lattice for the neighbors
-            spins_shifted = np.roll(self._calc_spins, shift=(dx, dy), axis=(0,1))
+            spins_shifted = np.roll(
+                self._calc_spins, shift=(dx, dy), axis=(0, 1))
             # Calculate the energy difference
             if theta_new is None:
                 delta_E += -self.J * np.cos(self._calc_spins - spins_shifted)
             else:
-                delta_E += -self.J * (np.cos(theta_new - spins_shifted) - np.cos(self._calc_spins - spins_shifted))
-
+                delta_E += -self.J * \
+                    (np.cos(theta_new - spins_shifted) -
+                     np.cos(self._calc_spins - spins_shifted))
 
         return delta_E if full_grid else delta_E[self.L:2*self.L, self.L:2*self.L]
 
@@ -154,12 +156,16 @@ class XY_Model:
 
                 i_shifted = i + L
                 j_shifted = j + L
-                
+
                 # Phase differences along the plaquette
-                delta_theta1 = _s[i_shifted, j_shifted] - _s[(i_shifted + 1), j_shifted]
-                delta_theta2 = _s[(i_shifted + 1), j_shifted] - _s[(i_shifted + 1), (j_shifted + 1)]
-                delta_theta3 = _s[(i_shifted + 1), (j_shifted + 1) ] - _s[i_shifted, (j_shifted + 1) ]
-                delta_theta4 = _s[i_shifted, (j_shifted + 1)] - _s[i_shifted, j_shifted]
+                delta_theta1 = _s[i_shifted, j_shifted] - \
+                    _s[(i_shifted + 1), j_shifted]
+                delta_theta2 = _s[(i_shifted + 1), j_shifted] - \
+                    _s[(i_shifted + 1), (j_shifted + 1)]
+                delta_theta3 = _s[(i_shifted + 1), (j_shifted + 1)
+                                  ] - _s[i_shifted, (j_shifted + 1)]
+                delta_theta4 = _s[i_shifted,
+                                  (j_shifted + 1)] - _s[i_shifted, j_shifted]
 
                 # Unwrap phase differences to be between -pi and pi
                 delta_theta1 = (delta_theta1 + np.pi) % (2 * np.pi) - np.pi
@@ -174,7 +180,7 @@ class XY_Model:
                 vorticity[i, j] = winding / (2 * np.pi)
 
         return vorticity
-        
+
     def set_single_vortex(self):
         """
         Sets a single vortex at the center of the lattice, replacing the entire _calc_spins lattice.
@@ -256,29 +262,28 @@ class XY_Model:
         self.current_energy = self.calculate_energy()
         self.current_step = 0
 
-
     def metropolis_step(self, T):
         """
-        Perform a single Metropolis step in the simulation. 
+        Perform a single Metropolis step in the simulation.
 
         Args:
         T (float): Temperature
         """
-        
+
         beta = 1 / T if T > 0 else np.inf
         L = self.L
 
         # Masks 90% of the spins to not be updated.
         # Metropolis usually updates one spin at the time.
         # Doing 10% of the spins per step is a good compromise between speed and accuracy.
-        mask = np.random.rand(3*L, 3*L) < .1
-        
+        mask = np.random.rand(3*L, 3*L) < 1
+
         # New angles for the spins
         theta_new = np.random.uniform(0, 2*np.pi, (3*L, 3*L))
-        
+
         # Energy difference for each spin
         delta_E = self.calculate_energy(theta_new, full_grid=True)
-        
+
         # Metropolis acceptance criterion
         rand_vals = np.random.rand(3*L, 3*L)
         accept = ((delta_E < 0) | (rand_vals < np.exp(-beta * delta_E))) & mask
@@ -290,7 +295,6 @@ class XY_Model:
         self.total_vortices = np.sum(self.vorticity > 0.95)
         self.total_antivortices = np.sum(self.vorticity < -0.95)
 
-
         # Calculates magnetisation
         M = self.calculate_magnetisation()
         if T not in self.mean_magnetisation:
@@ -299,5 +303,5 @@ class XY_Model:
         self.mean_magnetisation[T][-1] = M
         self.current_energy = self.calculate_energy()
 
-        # Step counter
+        # Step counter (not in use right now)
         self.current_step += 1

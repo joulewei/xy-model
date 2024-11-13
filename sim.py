@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib.widgets import Button, Slider, CheckButtons, RadioButtons
+from matplotlib.widgets import Button, Slider, RadioButtons
 
 L = input("Enter lattice size (default 16): ")
 interval = input("Enter delay between frames in ms (default 1ms): ")
@@ -187,7 +187,7 @@ button_set_vortex.on_clicked(set_vortex)
 button_set_vortex_pair.on_clicked(set_vortex_pair)
 slider_T.on_changed(update_temperature)
 
-# Animation starten
+# Run animation
 ani = animation.FuncAnimation(fig, update, frames=itertools.count,
                               interval=interval, blit=True, cache_frame_data=False)
 
